@@ -1,7 +1,6 @@
 from typing import Any, List
 import cv2
 import threading
-import gfpgan
 import os
 
 import modules.globals
@@ -11,6 +10,7 @@ from modules.face_analyser import get_one_face
 from modules.typing import Frame, Face
 import platform
 import torch
+import importlib.util
 from modules.utilities import (
     conditional_download,
     is_image,
@@ -22,10 +22,7 @@ THREAD_SEMAPHORE = threading.Semaphore()
 THREAD_LOCK = threading.Lock()
 NAME = "DLC.FACE-ENHANCER"
 
-abs_dir = os.path.dirname(os.path.abspath(__file__))
-models_dir = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(abs_dir))), "models"
-)
+models_dir = modules.globals.MODELS_DIR
 
 
 def pre_check() -> bool:
@@ -48,24 +45,27 @@ def pre_start() -> bool:
     return True
 
 
-TENSORRT_AVAILABLE = False
-try:
-    import torch_tensorrt
-    TENSORRT_AVAILABLE = True
-except ImportError as im:
-    print(f"TensorRT is not available: {im}")
-    pass
-except Exception as e:
-    print(f"TensorRT is not available: {e}")
-    pass
+TENSORRT_AVAILABLE = importlib.util.find_spec("torch_tensorrt") is not None
+if not TENSORRT_AVAILABLE:
+    print("[DLC.FACE-ENHANCER] TensorRT is not available.")
+
 
 def get_face_enhancer() -> Any:
     global FACE_ENHANCER
 
     with THREAD_LOCK:
         if FACE_ENHANCER is None:
+            # Lazy import to avoid failing module import if dependency is missing
+            try:
+                import gfpgan  # type: ignore
+            except Exception as e:
+                # Provide a clear hint but don't crash the whole app/UI
+                print(
+                    f"[{NAME}] GFPGAN library not available: {e}. Face enhancement will be skipped."
+                )
+                return None
             model_path = os.path.join(models_dir, "GFPGANv1.4.pth")
-            
+
             selected_device = None
             device_priority = []
 
@@ -81,17 +81,32 @@ def get_face_enhancer() -> Any:
             elif not torch.cuda.is_available():
                 selected_device = torch.device("cpu")
                 device_priority.append("CPU")
-            
-            FACE_ENHANCER = gfpgan.GFPGANer(model_path=model_path, upscale=1, device=selected_device)
+
+            try:
+                print(f"[{NAME}] Initializing GFPGAN with model: {model_path}")
+                FACE_ENHANCER = gfpgan.GFPGANer(
+                    model_path=model_path, upscale=1, device=selected_device
+                )
+            except Exception as e:
+                print(
+                    f"[{NAME}] Failed to initialize GFPGAN: {e}. Face enhancement will be skipped."
+                )
+                FACE_ENHANCER = None
 
             # for debug:
-            print(f"Selected device: {selected_device} and device priority: {device_priority}")
+            print(
+                f"Selected device: {selected_device} and device priority: {device_priority}"
+            )
     return FACE_ENHANCER
 
 
 def enhance_face(temp_frame: Frame) -> Frame:
     with THREAD_SEMAPHORE:
-        _, _, temp_frame = get_face_enhancer().enhance(temp_frame, paste_back=True)
+        enhancer = get_face_enhancer()
+        if enhancer is None:
+            # Enhancement unavailable; return original frame
+            return temp_frame
+        _, _, temp_frame = enhancer.enhance(temp_frame, paste_back=True)
     return temp_frame
 
 

@@ -3,7 +3,8 @@ name = "deep-live-cam"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.11"
+# Limit supported Python to avoid unnecessary resolver targets (e.g. cp313 on macOS)
+requires-python = ">=3.11,<3.13"
 dependencies = [
     "customtkinter==5.2.2",
     "cv2-enumerate-cameras==1.1.15",
@@ -17,12 +18,22 @@ dependencies = [
     "pillow>=11.3.0",
     "protobuf==4.25.1",
     "psutil==5.9.8",
+    # Face enhancement backend for face_enhancer processor
+    "gfpgan==1.3.8",
+    # Windows-specific dependency for DirectShow camera enumeration
+    "pygrabber>=0.1.16 ; sys_platform == 'win32'",
     "tk==0.1.0",
     "torch==2.5.1 ; sys_platform == 'darwin'",
-    "torch>=2.5.1 ; sys_platform != 'darwin'",
+    # Windows: pin exact CUDA 12.8 builds to avoid resolver downgrades
+    "torch===2.8.0+cu128 ; sys_platform == 'win32'",
     "torchvision==0.20.1 ; sys_platform == 'darwin'",
-    "torchvision>=0.20.1 ; sys_platform != 'darwin'",
+    "torchvision===0.23.0+cu128 ; sys_platform == 'win32'",
+    # Install torchaudio alongside torch/torchvision (GPU wheels from PyTorch index on non-macOS)
+    "torchaudio===2.8.0+cu128 ; sys_platform == 'win32'",
     "typing-extensions>=4.8.0",
+    "torch>=2.5.1",
+    "torchvision>=0.20.1",
+    "torchaudio>=2.5.1",
 ]
 
 [tool.uv]
@@ -31,3 +42,17 @@ dependencies = [
 required-environments = [
 	"sys_platform == 'win32' and platform_machine == 'AMD64'",
 ]
+# Only resolve for the local Windows x64 environment
+environments = [
+    "sys_platform == 'win32' and platform_machine == 'AMD64'",
+]
+
+# Keep PyPI as the default index and add the PyTorch CUDA wheels index as an extra index.
+# This allows installing torch/torchvision/torchaudio GPU wheels without breaking other deps.
+index-url = "https://pypi.org/simple"
+extra-index-url = [
+    "https://download.pytorch.org/whl/cu128",
+]
+
+# Consider all indexes when resolving a package (needed when some wheels exist only on extra indexes)
+index-strategy = "unsafe-best-match"

@@ -3,6 +3,10 @@ from typing import List, Dict, Any
 
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 WORKFLOW_DIR = os.path.join(ROOT_DIR, "workflow")
+# Project root is the parent of the modules/ directory
+PROJECT_ROOT = os.path.dirname(ROOT_DIR)
+# Central place for local models directory
+MODELS_DIR = os.path.join(PROJECT_ROOT, "models")
 
 file_types = [
     ("Image", ("*.png", "*.jpg", "*.jpeg", "*.gif", "*.bmp")),

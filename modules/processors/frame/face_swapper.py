@@ -21,22 +21,25 @@ FACE_SWAPPER = None
 THREAD_LOCK = threading.Lock()
 NAME = "DLC.FACE-SWAPPER"
 
-abs_dir = os.path.dirname(os.path.abspath(__file__))
-models_dir = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(abs_dir))), "models"
-)
+models_dir = modules.globals.MODELS_DIR
 
 
 def pre_check() -> bool:
-    download_directory_path = models_dir
-    model_url = "https://huggingface.co/hacksider/deep-live-cam/resolve/main/inswapper_128.onnx"
-    if "CUDAExecutionProvider" in modules.globals.execution_providers:
-        model_url = "https://huggingface.co/hacksider/deep-live-cam/resolve/main/inswapper_128_fp16.onnx"
-
-    conditional_download(
-        download_directory_path,
-        [model_url],
+    # Prefer local models in the models directory; only attempt download if missing
+    fp16 = "CUDAExecutionProvider" in modules.globals.execution_providers
+    expected = os.path.join(
+        models_dir, "inswapper_128_fp16.onnx" if fp16 else "inswapper_128.onnx"
     )
+    if not os.path.exists(expected):
+        download_directory_path = models_dir
+        model_url = "https://huggingface.co/hacksider/deep-live-cam/resolve/main/inswapper_128.onnx"
+        if fp16:
+            model_url = "https://huggingface.co/hacksider/deep-live-cam/resolve/main/inswapper_128_fp16.onnx"
+
+        conditional_download(
+            download_directory_path,
+            [model_url],
+        )
     return True
 
 
@@ -124,7 +127,6 @@ def process_frame(source_face: Face, temp_frame: Frame) -> Frame:
     return temp_frame
 
 
-
 def process_frame_v2(temp_frame: Frame, temp_frame_path: str = "") -> Frame:
     if is_image(modules.globals.target_path):
         if modules.globals.many_faces:
@@ -173,41 +175,51 @@ def process_frame_v2(temp_frame: Frame, temp_frame_path: str = "") -> Frame:
         if modules.globals.many_faces:
             if detected_faces:
                 source_face = default_source_face()
-                for target_face in detected_faces:
-                    temp_frame = swap_face(source_face, target_face, temp_frame)
+                if source_face is not None:
+                    for target_face in detected_faces:
+                        temp_frame = swap_face(source_face, target_face, temp_frame)
+                else:
+                    logging.warning(
+                        "No source face mapping provided; skipping swap in live mode with many_faces."
+                    )
 
         elif not modules.globals.many_faces:
             if detected_faces:
-                if len(detected_faces) <= len(
-                    modules.globals.simple_map["target_embeddings"]
-                ):
+                simple_map = modules.globals.simple_map or {}
+                source_faces = simple_map.get("source_faces")
+                target_embeddings = simple_map.get("target_embeddings")
+
+                if not source_faces or not target_embeddings:
+                    # Mapping has not been submitted yet; avoid KeyError and skip swapping
+                    logging.warning(
+                        "Mapping not available; skipping swap in live mode."
+                    )
+                    return temp_frame
+
+                if len(detected_faces) <= len(target_embeddings):
                     for detected_face in detected_faces:
                         closest_centroid_index, _ = find_closest_centroid(
-                            modules.globals.simple_map["target_embeddings"],
+                            target_embeddings,
                             detected_face.normed_embedding,
                         )
 
                         temp_frame = swap_face(
-                            modules.globals.simple_map["source_faces"][
-                                closest_centroid_index
-                            ],
+                            source_faces[closest_centroid_index],
                             detected_face,
                             temp_frame,
                         )
                 else:
-                    detected_faces_centroids = []
-                    for face in detected_faces:
-                        detected_faces_centroids.append(face.normed_embedding)
+                    detected_faces_centroids = [
+                        face.normed_embedding for face in detected_faces
+                    ]
                     i = 0
-                    for target_embedding in modules.globals.simple_map[
-                        "target_embeddings"
-                    ]:
+                    for target_embedding in target_embeddings:
                         closest_centroid_index, _ = find_closest_centroid(
                             detected_faces_centroids, target_embedding
                         )
 
                         temp_frame = swap_face(
-                            modules.globals.simple_map["source_faces"][i],
+                            source_faces[i],
                             detected_faces[closest_centroid_index],
                             temp_frame,
                         )
@@ -435,7 +447,12 @@ def draw_mouth_mask_visualization(
         feathered_mask = cv2.GaussianBlur(
             mask_region.astype(float), (kernel_size, kernel_size), 0
         )
-        feathered_mask = (feathered_mask / feathered_mask.max() * 255).astype(np.uint8)
+        # Avoid division by zero when the mask is empty
+        max_val = float(feathered_mask.max()) if feathered_mask.size else 0.0
+        if max_val > 0.0:
+            feathered_mask = (feathered_mask / max_val * 255).astype(np.uint8)
+        else:
+            feathered_mask = np.zeros_like(mask_region, dtype=np.uint8)
         # Remove the feathered mask color overlay
         # color_feathered_mask = cv2.applyColorMap(feathered_mask, cv2.COLORMAP_VIRIDIS)
 
@@ -513,7 +530,12 @@ def apply_mouth_area(
         feathered_mask = cv2.GaussianBlur(
             polygon_mask.astype(float), (0, 0), feather_amount
         )
-        feathered_mask = feathered_mask / feathered_mask.max()
+        # Avoid division by zero when the mask is empty
+        max_val = float(feathered_mask.max()) if feathered_mask.size else 0.0
+        if max_val > 0.0:
+            feathered_mask = feathered_mask / max_val
+        else:
+            feathered_mask = np.zeros_like(polygon_mask, dtype=float)
 
         face_mask_roi = face_mask[min_y:max_y, min_x:max_x]
         combined_mask = feathered_mask * (face_mask_roi / 255.0)
