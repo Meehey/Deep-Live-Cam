@@ -1,0 +1,33 @@
+[project]
+name = "deep-live-cam"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "customtkinter==5.2.2",
+    "cv2-enumerate-cameras==1.1.15",
+    "insightface==0.7.3",
+    "numpy>=1.23.5,<2",
+    "onnx==1.18.0",
+    "onnxruntime-gpu==1.21.0 ; sys_platform != 'darwin'",
+    "onnxruntime-silicon==1.16.3 ; platform_machine == 'arm64' and sys_platform == 'darwin'",
+    "opencv-python==4.10.0.84",
+    "opennsfw2==0.10.2",
+    "pillow>=11.3.0",
+    "protobuf==4.25.1",
+    "psutil==5.9.8",
+    "tk==0.1.0",
+    "torch==2.5.1 ; sys_platform == 'darwin'",
+    "torch>=2.5.1 ; sys_platform != 'darwin'",
+    "torchvision==0.20.1 ; sys_platform == 'darwin'",
+    "torchvision>=0.20.1 ; sys_platform != 'darwin'",
+    "typing-extensions>=4.8.0",
+]
+
+[tool.uv]
+# Ensure uv resolves packages with wheels compatible with Windows (win_amd64)
+# Use PEP 508 environment markers. On Windows 64-bit, sys_platform == 'win32' and platform_machine == 'AMD64'.
+required-environments = [
+	"sys_platform == 'win32' and platform_machine == 'AMD64'",
+]
