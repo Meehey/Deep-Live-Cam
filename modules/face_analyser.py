@@ -26,12 +26,36 @@ def get_face_analyser() -> Any:
 
     if FACE_ANALYSER is None:
         # Prefer local models directory; if missing, InsightFace will cache/download there
-        FACE_ANALYSER = insightface.app.FaceAnalysis(
-            name="buffalo_l",
-            root=modules.globals.MODELS_DIR,
-            providers=modules.globals.execution_providers,
-        )
-        FACE_ANALYSER.prepare(ctx_id=0, det_size=(640, 640))
+        root_dir = modules.globals.MODELS_DIR
+        local_blf_dir = os.path.join(root_dir, "models", "buffalo_l")
+        expected = [
+            "det_10g.onnx",
+            "2d106det.onnx",
+            "w600k_r50.onnx",
+        ]
+        missing = [f for f in expected if not os.path.exists(os.path.join(local_blf_dir, f))]
+        if missing:
+            print(
+                f"[DLC.FACE-ANALYSER] buffalo_l missing files {missing} under {local_blf_dir}. They will be auto-downloaded by InsightFace."
+            )
+        providers = modules.globals.execution_providers or ["CPUExecutionProvider"]
+        print(f"[DLC.FACE-ANALYSER] Initializing FaceAnalysis(buffalo_l) with providers: {providers} and root: {root_dir}")
+        try:
+            FACE_ANALYSER = insightface.app.FaceAnalysis(
+                name="buffalo_l",
+                root=root_dir,
+                providers=providers,
+            )
+            FACE_ANALYSER.prepare(ctx_id=0, det_size=(640, 640))
+        except Exception as e:
+            # Try CPU fallback explicitly
+            print(
+                f"[DLC.FACE-ANALYSER] Provider init failed ({providers}). Falling back to CPU: {e}"
+            )
+            FACE_ANALYSER = insightface.app.FaceAnalysis(
+                name="buffalo_l", root=root_dir, providers=["CPUExecutionProvider"]
+            )
+            FACE_ANALYSER.prepare(ctx_id=0, det_size=(640, 640))
     return FACE_ANALYSER
 
 

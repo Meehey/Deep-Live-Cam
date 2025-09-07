@@ -1,0 +1,1 @@
+uv run run.py --execution-provider cuda -s "C:\Users\Mikhail\Pictures\Elon_Musk,_2018_(cropped).jpg" -t "C:\Users\Mikhail\Pictures\output.mp4" -o media/output_video_swap.mp4
