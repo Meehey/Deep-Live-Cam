@@ -34,7 +34,7 @@ def pre_check() -> bool:
         download_directory_path = models_dir
         model_url = "https://huggingface.co/hacksider/deep-live-cam/resolve/main/inswapper_128.onnx"
         if fp16:
-            model_url = "https://huggingface.co/hacksider/deep-live-cam/resolve/main/inswapper_128_fp16.onnx"
+            model_url = "https://huggingface.co/hacksider/deep-live-cam/resolve/main/inswapper_128.onnx"
 
         conditional_download(
             download_directory_path,
@@ -66,12 +66,66 @@ def get_face_swapper() -> Any:
     with THREAD_LOCK:
         if FACE_SWAPPER is None:
             model_name = "inswapper_128.onnx"
-            if "CUDAExecutionProvider" in modules.globals.execution_providers:
-                model_name = "inswapper_128_fp16.onnx"
+            use_fp16 = "CUDAExecutionProvider" in modules.globals.execution_providers
+            if use_fp16:
+                model_name = "inswapper_128.onnx"
             model_path = os.path.join(models_dir, model_name)
-            FACE_SWAPPER = insightface.model_zoo.get_model(
-                model_path, providers=modules.globals.execution_providers
-            )
+
+            # Ensure model exists (downloaded by pre_check) and report provider choice
+            if not os.path.exists(model_path):
+                # Try to fetch the missing model just-in-time
+                try:
+                    conditional_download(
+                        models_dir,
+                        [
+                            f"https://huggingface.co/hacksider/deep-live-cam/resolve/main/{model_name}"
+                        ],
+                    )
+                except Exception as e:
+                    update_status(
+                        f"Face swapper model missing and download failed: {e}", NAME
+                    )
+                    raise
+
+            try:
+                update_status(
+                    f"Loading face swap model: {model_name} with providers {modules.globals.execution_providers}",
+                    NAME,
+                )
+                FACE_SWAPPER = insightface.model_zoo.get_model(
+                    model_path, providers=modules.globals.execution_providers
+                )
+            except Exception as e:
+                # Fallback to CPU if provider-specific session creation fails
+                update_status(
+                    f"Primary providers failed ({modules.globals.execution_providers}). Falling back to CPU: {e}",
+                    NAME,
+                )
+                try:
+                    # If the selected model was fp16, prefer the fp32 variant on CPU
+                    cpu_model_path = model_path
+                    if use_fp16:
+                        cpu_model_name = "inswapper_128.onnx"
+                        cpu_model_path = os.path.join(models_dir, cpu_model_name)
+                        if not os.path.exists(cpu_model_path):
+                            # Best-effort fetch of the fp32 model for CPU fallback
+                            try:
+                                conditional_download(
+                                    models_dir,
+                                    [
+                                        "https://huggingface.co/hacksider/deep-live-cam/resolve/main/inswapper_128.onnx"
+                                    ],
+                                )
+                            except Exception:
+                                pass
+
+                    FACE_SWAPPER = insightface.model_zoo.get_model(
+                        cpu_model_path, providers=["CPUExecutionProvider"]
+                    )
+                    update_status("Loaded face swapper on CPU provider.", NAME)
+                except Exception as ee:
+                    update_status(f"Failed to load face swap model on CPU: {ee}", NAME)
+                    raise
     return FACE_SWAPPER
 
 
@@ -107,9 +161,6 @@ def swap_face(source_face: Face, target_face: Face, temp_frame: Frame) -> Frame:
 
 
 def process_frame(source_face: Face, temp_frame: Frame) -> Frame:
-    if modules.globals.color_correction:
-        temp_frame = cv2.cvtColor(temp_frame, cv2.COLOR_BGR2RGB)
-
     if modules.globals.many_faces:
         many_faces = get_many_faces(temp_frame)
         if many_faces:
